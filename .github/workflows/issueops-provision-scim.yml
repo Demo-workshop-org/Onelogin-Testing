@@ -20,13 +20,20 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Create requirements.txt
+        run: |
+          echo "requests" > requirements.txt
+          echo "python-dotenv" >> requirements.txt
+          echo "pandas" >> requirements.txt
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Extract user emails from issue body
         id: extract
         run: |
-          echo "${{ github.event.issue.body }}" > user_emails.csv
+          echo "email" > user_emails.csv
+          echo "${{ github.event.issue.body }}" | tr -d '\r' >> user_emails.csv
 
       - name: Write .env file
         run: |

@@ -1,0 +1,16 @@
+name: "Deprovision SCIM Users"
+description: "Deprovision SCIM user(s) from GitHub"
+title: "deprovision_user"
+labels: ["automation", "deprovision"]
+body:
+  - type: textarea
+    id: emails
+    attributes:
+      label: "Email list"
+      description: |
+        Provide email addresses (one per line) for users to be deprovisioned.
+        Example:
+        user1@example.com
+        user2@example.com
+    validations:
+      required: true

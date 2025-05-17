@@ -1,0 +1,48 @@
+name: "Deprovision SCIM Users from IssueOps"
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  deprovision:
+    if: github.event.issue.title == 'deprovision_user'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Extract email list from issue body
+        run: echo "${{ github.event.issue.body }}" > users_to_deprovision.csv
+
+      - name: Write .env file
+        run: |
+          echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> .env
+          echo "ENTERPRISE_SLUG=${{ secrets.GITHUB_ENTERPRISE }}" >> .env
+          echo "CSV_FILE=users_to_deprovision.csv" >> .env
+
+      - name: Run Deprovision Script
+        run: |
+          python deprovision_scim_users.py
+
+      - name: Comment on issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: "✅ SCIM deprovisioning has been triggered. Check the workflow run for detailed logs."
+            })

@@ -1,0 +1,17 @@
+name: "Provision SCIM User"
+description: "Provision user(s) to GitHub SCIM as role 'User'"
+title: "provision_user"
+labels: ["automation", "provision"]
+body:
+  - type: textarea
+    id: users
+    attributes:
+      label: "User list in CSV format"
+      description: |
+        Provide user details in CSV format with the following columns:
+        email
+        Example:
+        user1@example.com
+        user2@example.com
+    validations:
+      required: true

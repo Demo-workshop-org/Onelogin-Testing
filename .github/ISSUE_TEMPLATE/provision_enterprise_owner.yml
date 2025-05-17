@@ -1,0 +1,17 @@
+name: "Provision SCIM Enterprise Owner"
+description: "Provision user(s) to GitHub SCIM as role 'enterprise_owner'"
+title: "provision_enterprise_owner"
+labels: ["automation", "provision"]
+body:
+  - type: textarea
+    id: users
+    attributes:
+      label: "User list in CSV format"
+      description: |
+        Provide user details in CSV format with the following columns:
+        email
+        Example:
+        user1@example.com
+        user2@example.com
+    validations:
+      required: true

@@ -1,149 +1,64 @@
-# onelogin_to_github_provision.py
-import csv
-import requests
-import json
-import os
-from dotenv import load_dotenv
-import pandas as pd
-from datetime import datetime
+name: "Provision SCIM Users from IssueOps"
+on:
+  issues:
+    types: [opened, edited]
 
-# Load environment variables
-load_dotenv()
+jobs:
+  provision:
+    if: github.event.issue.title == 'provision_user' || github.event.issue.title == 'provision_enterprise_owner'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
 
-# OneLogin Environment
-CLIENT_ID = os.getenv('CLIENT_ID')
-CLIENT_SECRET = os.getenv('CLIENT_SECRET')
-BASE_URL = os.getenv('BASE_URL')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-# GitHub SCIM Environment
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GITHUB_ENTERPRISE = os.getenv("GITHUB_ENTERPRISE")
-GITHUB_ROLE = os.getenv("GITHUB_ROLE", "member")
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-if not GITHUB_TOKEN or not GITHUB_ENTERPRISE:
-    raise ValueError("Please set GITHUB_TOKEN and GITHUB_ENTERPRISE in the .env file.")
+      - name: Create requirements.txt
+        run: |
+          echo "requests" > requirements.txt
+          echo "python-dotenv" >> requirements.txt
+          echo "pandas" >> requirements.txt
 
-GITHUB_SCIM_URL = f"https://api.github.com/scim/v2/enterprises/{GITHUB_ENTERPRISE}/Users"
-EMAIL_CSV = 'user_emails.csv'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-def get_access_token():
-    url = "https://api.us.onelogin.com/auth/oauth2/v2/token"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "grant_type": "client_credentials",
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET
-    }
-    response = requests.post(url, headers=headers, json=payload)
-    response.raise_for_status()
-    return response.json().get("access_token")
+      - name: Extract user emails from issue body
+        id: extract
+        run: |
+          echo "email" > user_emails.csv
+          echo "${{ github.event.issue.body }}" | tr -d '\r' >> user_emails.csv
 
-def fetch_user_by_email(email, token):
-    url = f"{BASE_URL}/api/1/users"
-    headers = {
-        "Authorization": f"bearer:{token}",
-        "Accept": "application/json"
-    }
-    params = {"email": email}
-    response = requests.get(url, headers=headers, params=params)
-    response.raise_for_status()
+      - name: Write .env file
+        run: |
+          echo "CLIENT_ID=${{ secrets.CLIENT_ID }}" >> .env
+          echo "CLIENT_SECRET=${{ secrets.CLIENT_SECRET }}" >> .env
+          echo "BASE_URL=${{ secrets.BASE_URL }}" >> .env
+          echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> .env
+          echo "GITHUB_ENTERPRISE=${{ secrets.GITHUB_ENTERPRISE }}" >> .env
+          if [[ "${{ github.event.issue.title }}" == "provision_user" ]]; then
+            echo "GITHUB_ROLE=User" >> .env
+          else
+            echo "GITHUB_ROLE=enterprise_owner" >> .env
+          fi
 
-    users = []
-    for user in response.json().get("data", []):
-        user_id = user.get("id", "")
-        username = user.get("username", "")
-        first_name = user.get("firstname", "")
-        last_name = user.get("lastname", "")
-        email = user.get("email", "")
-        full_name = f"{first_name} {last_name}".strip()
+      - name: Run Provisioning Script
+        run: |
+          python onelogin_to_github_provision.py
 
-        users.append({
-            "externalId": user_id,
-            "userName": username,
-            "formatted": full_name,
-            "familyName": last_name,
-            "givenName": first_name,
-            "displayName": full_name,
-            "email": email,
-            "role": GITHUB_ROLE
-        })
-
-    return users
-
-def provision_user(row):
-    if not row.get('userName') or not row.get('email'):
-        print(f"Skipping row due to missing userName or email: {row}")
-        return
-
-    payload = {
-        "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-        "externalId": str(row.get('externalId')),
-        "active": True,
-        "userName": row.get('userName'),
-        "name": {
-            "formatted": row.get('formatted'),
-            "familyName": row.get('familyName'),
-            "givenName": row.get('givenName')
-        },
-        "displayName": row.get('displayName'),
-        "emails": [{
-            "value": row.get('email'),
-            "type": "work",
-            "primary": True
-        }],
-        "roles": [{
-            "value": row.get('role'),
-            "primary": False
-        }]
-    }
-
-    headers = {
-        "Accept": "application/scim+json",
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json"
-    }
-
-    response = requests.post(GITHUB_SCIM_URL, headers=headers, data=json.dumps(payload))
-    print(f"Provisioning {row['userName']} ({row['email']}) with role '{row['role']}': {response.status_code}")
-    if response.status_code not in (200, 201):
-        print("Error:", response.text)
-
-def main():
-    if not CLIENT_ID or not CLIENT_SECRET or not BASE_URL:
-        raise ValueError("Please set CLIENT_ID, CLIENT_SECRET, and BASE_URL in the .env file.")
-
-    token = get_access_token()
-    results = []
-
-    try:
-        with open(EMAIL_CSV, newline='', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                email = row.get("email")
-                if not email:
-                    continue
-                try:
-                    user_data = fetch_user_by_email(email, token)
-                    if user_data:
-                        for user in user_data:
-                            results.append(user)
-                            provision_user(user)
-                    else:
-                        print(f"User not found in OneLogin: {email}")
-                except Exception as e:
-                    print(f"Error processing {email}: {str(e)}")
-    except FileNotFoundError:
-        print("users.csv file not found.")
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-
-    if results:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"onelogin_user_details_{timestamp}.csv"
-        df = pd.DataFrame(results)
-        df.to_csv(output_file, index=False)
-        print(f"\nResults saved to '{output_file}'")
-
-if __name__ == "__main__":
-    main()
+      - name: Comment on issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: "✅ SCIM provisioning has been triggered. Check the workflow run for detailed logs."
+            })

@@ -28,8 +28,8 @@ jobs:
 
       - name: Write .env file
         run: |
-          echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> .env
-          echo "ENTERPRISE_SLUG=${{ secrets.GITHUB_ENTERPRISE }}" >> .env
+          echo "GITHUB_TOKEN=${{ secrets.GPAT }}" >> .env
+          echo "ENTERPRISE_SLUG=${{ secrets.GENTERPRISE }}" >> .env
           echo "CSV_FILE=users_to_deprovision.csv" >> .env
 
       - name: Run Deprovision Script

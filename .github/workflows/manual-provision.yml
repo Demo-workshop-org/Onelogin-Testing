@@ -57,12 +57,21 @@ jobs:
           CSV_FILE="${{ github.event.inputs.csv_file }}"
           if [[ ! -f "$CSV_FILE" ]]; then
             echo "❌ CSV file '$CSV_FILE' not found!"
-            echo "Available files:"
-            ls -la *.csv || echo "No CSV files found"
+            echo "Available CSV files:"
+            ls -la *.csv 2>/dev/null || echo "No CSV files found"
             exit 1
           fi
-          echo "✅ CSV file found:"
+          echo "✅ CSV file found: $CSV_FILE"
+          echo "📋 Preview (first 5 lines):"
           head -5 "$CSV_FILE"
+          
+          # Validate CSV format
+          if ! head -1 "$CSV_FILE" | grep -q "email"; then
+            echo "⚠️  Warning: CSV file doesn't seem to have 'email' header"
+            echo "Expected format:"
+            echo "email"
+            echo "user@example.com"
+          fi
 
       - name: Create environment file
         run: |
@@ -113,7 +122,10 @@ jobs:
         continue-on-error: true
         run: |
           echo "🚀 Starting SCIM provisioning..."
-          cp "${{ github.event.inputs.csv_file }}" user_emails.csv
+          # Only copy if it's a different file
+          if [[ "${{ github.event.inputs.csv_file }}" != "user_emails.csv" ]]; then
+            cp "${{ github.event.inputs.csv_file }}" user_emails.csv
+          fi
           python onelogin_to_github_provision.py 2>&1 | tee scim_provisioning.log
           
           # Check if SCIM failed due to EMU restrictions
@@ -131,7 +143,10 @@ jobs:
             echo "🚀 Starting invitation provisioning..."
           fi
           
-          cp "${{ github.event.inputs.csv_file }}" user_emails.csv
+          # Only copy if it's a different file
+          if [[ "${{ github.event.inputs.csv_file }}" != "user_emails.csv" ]]; then
+            cp "${{ github.event.inputs.csv_file }}" user_emails.csv
+          fi
           python onelogin_to_github_invite.py 2>&1 | tee invitation_provisioning.log
 
       - name: Generate summary

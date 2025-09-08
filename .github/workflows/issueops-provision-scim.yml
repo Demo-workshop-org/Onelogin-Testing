@@ -37,11 +37,11 @@ jobs:
 
       - name: Write .env file
         run: |
-          echo "CLIENT_ID=${{ secrets.CLIENTID }}" >> .env
-          echo "CLIENT_SECRET=${{ secrets.CLIENTSECRET }}" >> .env
-          echo "BASE_URL=${{ secrets.BASEURL }}" >> .env
-          echo "GITHUB_TOKEN=${{ secrets.GPAT }}" >> .env
-          echo "GITHUB_ENTERPRISE=${{ secrets.GENTERPRISE }}" >> .env
+          echo "CLIENTID=${{ secrets.CLIENTID }}" >> .env
+          echo "CLIENTSECRET=${{ secrets.CLIENTSECRET }}" >> .env
+          echo "BASEURL=${{ secrets.BASEURL }}" >> .env
+          echo "GPAT=${{ secrets.GPAT }}" >> .env
+          echo "GENTERPRISE=${{ secrets.GENTERPRISE }}" >> .env
           if [[ "${{ github.event.issue.title }}" == "provision_user" ]]; then
             echo "GITHUB_ROLE=User" >> .env
           else

@@ -31,8 +31,8 @@ def get_access_token():
     headers = {"Content-Type": "application/json"}
     payload = {
         "grant_type": "client_credentials",
-        "CLIENTID": CLIENTID,
-        "CLIENTSECRET": CLIENTSECRET
+        "client_id": CLIENTID,
+        "client_secret": CLIENTSECRET
     }
     response = requests.post(url, headers=headers, json=payload)
     response.raise_for_status()

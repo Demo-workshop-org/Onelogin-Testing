@@ -11,19 +11,19 @@ from datetime import datetime
 load_dotenv()
 
 # OneLogin Environment
-CLIENT_ID = os.getenv('CLIENT_ID')
-CLIENT_SECRET = os.getenv('CLIENT_SECRET')
-BASE_URL = os.getenv('BASE_URL')
+CLIENTID = os.getenv('CLIENTID')
+CLIENTSECRET = os.getenv('CLIENTSECRET')
+BASEURL = os.getenv('BASEURL')
 
 # GitHub SCIM Environment
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GITHUB_ENTERPRISE = os.getenv("GITHUB_ENTERPRISE")
+GPAT = os.getenv("GPAT")
+GENTERPRISE = os.getenv("GENTERPRISE")
 GITHUB_ROLE = os.getenv("GITHUB_ROLE", "member")
 
-if not GITHUB_TOKEN or not GITHUB_ENTERPRISE:
-    raise ValueError("Please set GITHUB_TOKEN and GITHUB_ENTERPRISE in the .env file.")
+if not GPAT or not GENTERPRISE:
+    raise ValueError("Please set GPAT and GENTERPRISE in the .env file.")
 
-GITHUB_SCIM_URL = f"https://api.github.com/scim/v2/enterprises/{GITHUB_ENTERPRISE}/Users"
+GITHUB_SCIM_URL = f"https://api.github.com/scim/v2/enterprises/{GENTERPRISE}/Users"
 EMAIL_CSV = 'user_emails.csv'
 
 def get_access_token():
@@ -31,15 +31,15 @@ def get_access_token():
     headers = {"Content-Type": "application/json"}
     payload = {
         "grant_type": "client_credentials",
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET
+        "CLIENTID": CLIENTID,
+        "CLIENTSECRET": CLIENTSECRET
     }
     response = requests.post(url, headers=headers, json=payload)
     response.raise_for_status()
     return response.json().get("access_token")
 
 def fetch_user_by_email(email, token):
-    url = f"{BASE_URL}/api/1/users"
+    url = f"{BASEURL}/api/1/users"
     headers = {
         "Authorization": f"bearer:{token}",
         "Accept": "application/json"
@@ -99,7 +99,7 @@ def provision_user(row):
 
     headers = {
         "Accept": "application/scim+json",
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Authorization": f"Bearer {GPAT}",
         "X-GitHub-Api-Version": "2022-11-28",
         "Content-Type": "application/json"
     }
@@ -110,8 +110,8 @@ def provision_user(row):
         print("Error:", response.text)
 
 def main():
-    if not CLIENT_ID or not CLIENT_SECRET or not BASE_URL:
-        raise ValueError("Please set CLIENT_ID, CLIENT_SECRET, and BASE_URL in the .env file.")
+    if not CLIENTID or not CLIENTSECRET or not BASEURL:
+        raise ValueError("Please set CLIENTID, CLIENTSECRET, and BASEURL in the .env file.")
 
     token = get_access_token()
     results = []

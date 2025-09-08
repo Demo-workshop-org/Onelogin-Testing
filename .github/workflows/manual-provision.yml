@@ -1,0 +1,182 @@
+name: "Manual User Provisioning"
+
+on:
+  workflow_dispatch:
+    inputs:
+      provision_method:
+        description: 'Choose provisioning method'
+        required: true
+        default: 'invite'
+        type: choice
+        options:
+          - invite
+          - scim
+      user_role:
+        description: 'GitHub role for provisioned users'
+        required: true
+        default: 'direct_member'
+        type: choice
+        options:
+          - member
+          - admin
+          - direct_member
+          - enterprise_owner
+      csv_file:
+        description: 'CSV file name (default: user_emails.csv)'
+        required: false
+        default: 'user_emails.csv'
+
+jobs:
+  provision-users:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          pip install requests python-dotenv pandas
+
+      - name: Validate inputs
+        run: |
+          echo "Provisioning method: ${{ github.event.inputs.provision_method }}"
+          echo "User role: ${{ github.event.inputs.user_role }}"
+          echo "CSV file: ${{ github.event.inputs.csv_file }}"
+
+      - name: Check CSV file exists
+        run: |
+          CSV_FILE="${{ github.event.inputs.csv_file }}"
+          if [[ ! -f "$CSV_FILE" ]]; then
+            echo "❌ CSV file '$CSV_FILE' not found!"
+            echo "Available files:"
+            ls -la *.csv || echo "No CSV files found"
+            exit 1
+          fi
+          echo "✅ CSV file found:"
+          head -5 "$CSV_FILE"
+
+      - name: Create environment file
+        run: |
+          cat > .env << EOF
+          CLIENTID=${{ secrets.CLIENTID }}
+          CLIENTSECRET=${{ secrets.CLIENTSECRET }}
+          BASEURL=${{ secrets.BASEURL }}
+          GPAT=${{ secrets.GPAT }}
+          GENTERPRISE=${{ secrets.GENTERPRISE }}
+          GITHUB_ORG=${{ secrets.GITHUB_ORG }}
+          GITHUB_ROLE=${{ github.event.inputs.user_role }}
+          EOF
+          echo "Environment file created"
+
+      - name: Validate environment variables
+        run: |
+          source .env
+          echo "Checking required environment variables..."
+          
+          if [[ -z "$CLIENTID" ]]; then echo "❌ CLIENTID not set"; exit 1; fi
+          if [[ -z "$CLIENTSECRET" ]]; then echo "❌ CLIENTSECRET not set"; exit 1; fi
+          if [[ -z "$BASEURL" ]]; then echo "❌ BASEURL not set"; exit 1; fi
+          if [[ -z "$GPAT" ]]; then echo "❌ GPAT not set"; exit 1; fi
+          
+          if [[ "${{ github.event.inputs.provision_method }}" == "scim" && -z "$GENTERPRISE" ]]; then
+            echo "❌ GENTERPRISE required for SCIM provisioning"; exit 1;
+          fi
+          
+          if [[ "${{ github.event.inputs.provision_method }}" == "invite" ]]; then
+            if [[ -z "$GITHUB_ORG" && -z "$GENTERPRISE" ]]; then
+              echo "❌ Either GITHUB_ORG (for org invites) or GENTERPRISE (for enterprise access) required for invitation method"; 
+              exit 1;
+            fi
+            
+            if [[ -n "$GITHUB_ORG" ]]; then
+              echo "✅ Will use organization invitation method for: $GITHUB_ORG"
+            elif [[ -n "$GENTERPRISE" ]]; then
+              echo "✅ Will attempt enterprise-level access for: $GENTERPRISE"
+              echo "⚠️  Note: Direct enterprise invitations may require organization membership"
+            fi
+          fi
+          
+          echo "✅ Environment validation complete"
+
+      - name: Run SCIM provisioning
+        if: github.event.inputs.provision_method == 'scim'
+        id: scim
+        continue-on-error: true
+        run: |
+          echo "🚀 Starting SCIM provisioning..."
+          cp "${{ github.event.inputs.csv_file }}" user_emails.csv
+          python onelogin_to_github_provision.py 2>&1 | tee scim_provisioning.log
+          
+          # Check if SCIM failed due to EMU restrictions
+          if grep -q "Enterprise Managed User enabled Enterprises" scim_provisioning.log; then
+            echo "⚠️ SCIM failed due to EMU restrictions. Will fallback to invitation method."
+            echo "emu_detected=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run invitation provisioning
+        if: github.event.inputs.provision_method == 'invite' || steps.scim.outputs.emu_detected == 'true'
+        run: |
+          if [[ "${{ steps.scim.outputs.emu_detected }}" == "true" ]]; then
+            echo "🔄 Falling back to invitation method due to EMU restrictions..."
+          else
+            echo "🚀 Starting invitation provisioning..."
+          fi
+          
+          cp "${{ github.event.inputs.csv_file }}" user_emails.csv
+          python onelogin_to_github_invite.py 2>&1 | tee invitation_provisioning.log
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 📊 Provisioning Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Method**: ${{ github.event.inputs.provision_method }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Role**: ${{ github.event.inputs.user_role }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **CSV File**: ${{ github.event.inputs.csv_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workflow Run**: [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Count processed users
+          CSV_FILE="${{ github.event.inputs.csv_file }}"
+          if [[ -f "$CSV_FILE" ]]; then
+            USER_COUNT=$(tail -n +2 "$CSV_FILE" | grep -v '^$' | wc -l)
+            echo "- **Users in CSV**: $USER_COUNT" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Add EMU detection info
+          if [[ "${{ steps.scim.outputs.emu_detected }}" == "true" ]]; then
+            echo "- **Note**: EMU restriction detected, used invitation method instead" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: provisioning-results-${{ github.run_number }}
+          path: |
+            *.log
+            *.csv
+            onelogin_user_details_*.csv
+          retention-days: 30
+
+      - name: Check for errors
+        if: always()
+        run: |
+          if [[ -f "scim_provisioning.log" ]]; then
+            echo "📄 SCIM Provisioning Log:"
+            tail -20 scim_provisioning.log
+          fi
+          
+          if [[ -f "invitation_provisioning.log" ]]; then
+            echo "📄 Invitation Provisioning Log:"
+            tail -20 invitation_provisioning.log
+          fi
